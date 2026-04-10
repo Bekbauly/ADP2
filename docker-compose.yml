@@ -1,0 +1,75 @@
+version: "3.9"
+
+services:
+  # ─── Databases ────────────────────────────────────────────────────────────────
+  orders-db:
+    image: postgres:16-alpine
+    container_name: orders-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orders
+    ports:
+      - "5432:5432"
+    volumes:
+      - orders-db-data:/var/lib/postgresql/data
+      - ./order-service/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orders"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  payments-db:
+    image: postgres:16-alpine
+    container_name: payments-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payments
+    ports:
+      - "5433:5432"
+    volumes:
+      - payments-db-data:/var/lib/postgresql/data
+      - ./payment-service/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Services ─────────────────────────────────────────────────────────────────
+  payment-service:
+    build:
+      context: ./payment-service
+      dockerfile: Dockerfile
+    container_name: payment-service
+    environment:
+      HTTP_PORT: "8081"
+      DATABASE_DSN: "host=payments-db port=5432 user=postgres password=postgres dbname=payments sslmode=disable"
+    ports:
+      - "8081:8081"
+    depends_on:
+      payments-db:
+        condition: service_healthy
+
+  order-service:
+    build:
+      context: ./order-service
+      dockerfile: Dockerfile
+    container_name: order-service
+    environment:
+      HTTP_PORT: "8080"
+      DATABASE_DSN: "host=orders-db port=5432 user=postgres password=postgres dbname=orders sslmode=disable"
+      PAYMENT_SERVICE_URL: "http://payment-service:8081/api/v1"
+    ports:
+      - "8080:8080"
+    depends_on:
+      orders-db:
+        condition: service_healthy
+      payment-service:
+        condition: service_started
+
+volumes:
+  orders-db-data:
+  payments-db-data:
